@@ -1,0 +1,32 @@
+# ═══════════════════════════════════════════════════════════════
+#  🌌 COSMIC AI - Backend Dependencies
+# ═══════════════════════════════════════════════════════════════
+
+# FastAPI Framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Azure OpenAI
+openai
+sentence-transformers
+
+# Vector Database
+faiss-cpu
+numpy>=1.24.0
+
+# Document Processing
+pypdf2
+python-docx
+
+# Text Chunking
+langchain-text-splitters
+
+# Utilities
+python-dotenv
+pydantic
+pydantic-settings
+
+# Logging
+colorama
+rich

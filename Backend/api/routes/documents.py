@@ -1,0 +1,126 @@
+"""
+═══════════════════════════════════════════════════════════════
+ 🌌 COSMIC AI - Document Upload Routes
+═══════════════════════════════════════════════════════════════
+"""
+
+import os
+from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException
+from fastapi.responses import FileResponse
+from config.settings import settings
+from utils.file_handler import validate_file, save_upload_file
+from services.document_processor import process_document
+from services.vector_store import get_vector_store
+from utils.logger import setup_logger
+
+logger = setup_logger()
+
+router = APIRouter(prefix="/api", tags=["documents"])
+
+
+@router.post("/upload")
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """
+    ┌─────────────────────────────────────────────┐
+    │  📤 Upload and process a document           │
+    └─────────────────────────────────────────────┘
+    """
+    
+    logger.info("═" * 60)
+    logger.info("📤 NEW DOCUMENT UPLOAD")
+    logger.info("═" * 60)
+    logger.info(f"   └─ Filename: {file.filename}")
+    logger.info(f"   └─ Content-Type: {file.content_type}")
+    
+    # Validate file
+    validate_file(file)
+    
+    # Save file to disk
+    file_path, file_id = await save_upload_file(file)
+    
+    # Process document in background
+    logger.info("🔄 Starting background processing...")
+    
+    # Mark as processing immediately so status endpoint finds it
+    vector_store = get_vector_store()
+    vector_store.mark_as_processing(file_id)
+    
+    background_tasks.add_task(process_document, file_path, file_id)
+    
+    return {
+        "status": "processing",
+        "file_id": file_id,
+        "filename": file.filename,
+        "message": "🚀 Document uploaded! Processing in background..."
+    }
+
+
+@router.get("/analyze/status/{file_id}")
+async def get_analysis_status(file_id: str):
+    """
+    ┌─────────────────────────────────────────────┐
+    │  📊 Get document analysis status            │
+    └─────────────────────────────────────────────┘
+    """
+    
+    logger.info(f"📊 Status check for: {file_id}")
+    
+    vector_store = get_vector_store()
+    status = vector_store.get_document_status(file_id)
+    
+    logger.info(f"   └─ Status: {status['status']}")
+    
+    return {
+        "file_id": file_id,
+        "status": status.get("status", "processing"),
+        "chunks_count": status.get("chunks_count", 0)
+    }
+
+
+@router.get("/documents/{file_id}/view")
+async def view_document(file_id: str):
+    """
+    ┌─────────────────────────────────────────────┐
+    │  👁️ Serve document for PDF/Text preview     │
+    └─────────────────────────────────────────────┘
+    """
+    
+    logger.info(f"👁️ Document view request: {file_id}")
+    
+    # Search for file in upload directory
+    for filename in os.listdir(settings.UPLOAD_DIR):
+        if filename.startswith(file_id):
+            file_path = os.path.join(settings.UPLOAD_DIR, filename)
+            logger.info(f"   └─ Serving: {file_path}")
+            return FileResponse(file_path)
+    
+    logger.warning(f"   └─ File not found: {file_id}")
+    raise HTTPException(status_code=404, detail="File not found")
+
+
+@router.get("/documents/{file_id}/text-preview")
+async def get_document_text(file_id: str):
+    """
+    ┌─────────────────────────────────────────────┐
+    │  📄 Get extracted text from vector store    │
+    └─────────────────────────────────────────────┘
+    """
+    
+    logger.info(f"📄 Text preview request: {file_id}")
+    
+    vector_store = get_vector_store()
+    chunks = vector_store.get_all_chunks_for_file(file_id)
+    
+    if not chunks:
+        logger.warning(f"   └─ No chunks found for: {file_id}")
+        raise HTTPException(status_code=404, detail="Document content not found")
+    
+    logger.info(f"   └─ Returning {len(chunks)} chunks")
+    
+    return {
+        "content": "\n\n".join(chunks),
+        "chunks_count": len(chunks)
+    }

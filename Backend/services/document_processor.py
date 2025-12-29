@@ -1,0 +1,131 @@
+"""
+═══════════════════════════════════════════════════════════════
+ 🌌 COSMIC AI - Document Processing Pipeline
+═══════════════════════════════════════════════════════════════
+"""
+
+import os
+import numpy as np
+from typing import List
+from services.document_parser import DocumentParser
+from services.chunking import get_text_chunker
+from services.embeddings import get_embedding_service
+from services.vector_store import get_vector_store
+from utils.logger import setup_logger
+
+logger = setup_logger()
+
+
+async def process_document(file_path: str, file_id: str):
+    """
+    ┌─────────────────────────────────────────────────────────────┐
+    │  🚀 Complete Document Processing Pipeline                   │
+    │                                                             │
+    │  1. Parse document → Extract text                           │
+    │  2. Chunk text → Recursive splitting                        │
+    │  3. Generate embeddings → Azure OpenAI                      │
+    │  4. Store in vector database → FAISS HNSW                   │
+    └─────────────────────────────────────────────────────────────┘
+    """
+    
+    try:
+        filename = os.path.basename(file_path)
+        
+        logger.info("═" * 60)
+        logger.info(f"🚀 PROCESSING DOCUMENT: {filename}")
+        logger.info("═" * 60)
+        
+        # ─────────────────────────────────────
+        # Step 1: Parse document
+        # ─────────────────────────────────────
+        logger.info("\n📋 STEP 1: Parsing Document")
+        logger.info("─" * 40)
+        
+        parser = DocumentParser()
+        text = parser.parse(file_path)
+        
+        if not text or not text.strip():
+            logger.warning("⚠️ No text extracted from document")
+            return
+        
+        logger.info(f"✅ Extracted: {len(text)} characters")
+        
+        # ─────────────────────────────────────
+        # Step 2: Chunk text
+        # ─────────────────────────────────────
+        logger.info("\n✂️ STEP 2: Chunking Text")
+        logger.info("─" * 40)
+        
+        chunker = get_text_chunker()
+        chunks = chunker.chunk_text(text)
+        
+        if not chunks:
+            logger.warning("⚠️ No chunks generated")
+            return
+        
+        logger.info(f"✅ Generated: {len(chunks)} chunks")
+        
+        # ─────────────────────────────────────
+        # Step 3: Generate embeddings
+        # ─────────────────────────────────────
+        logger.info("\n🧠 STEP 3: Generating Embeddings")
+        logger.info("─" * 40)
+        
+        embedding_service = get_embedding_service()
+        
+        # Process in batches to avoid token limits
+        BATCH_SIZE = 16  # Azure OpenAI batch limit
+        all_embeddings = []
+        
+        total_batches = (len(chunks) - 1) // BATCH_SIZE + 1
+        
+        for i in range(0, len(chunks), BATCH_SIZE):
+            batch = chunks[i:i+BATCH_SIZE]
+            batch_num = i // BATCH_SIZE + 1
+            
+            logger.info(f"   └─ Batch {batch_num}/{total_batches}: {len(batch)} chunks")
+            
+            batch_embeddings = embedding_service.embed_texts(batch)
+            all_embeddings.append(batch_embeddings)
+        
+        # Concatenate all embeddings
+        embeddings = np.vstack(all_embeddings)
+        
+        logger.info(f"✅ Embeddings shape: {embeddings.shape}")
+        
+        # ─────────────────────────────────────
+        # Step 4: Store in vector database
+        # ─────────────────────────────────────
+        logger.info("\n💾 STEP 4: Storing in Vector Database")
+        logger.info("─" * 40)
+        
+        vector_store = get_vector_store()
+        
+        vector_store.add_chunks(
+            file_id=file_id,
+            filename=filename,
+            chunks=chunks,
+            embeddings=embeddings
+        )
+        
+        # ─────────────────────────────────────
+        # Complete!
+        # ─────────────────────────────────────
+        logger.info("\n" + "═" * 60)
+        logger.info(f"🎉 DOCUMENT PROCESSED SUCCESSFULLY!")
+        logger.info(f"   └─ File ID: {file_id}")
+        logger.info(f"   └─ Chunks: {len(chunks)}")
+        logger.info(f"   └─ Ready for RAG queries")
+        logger.info("═" * 60 + "\n")
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing document {file_id}: {e}")
+        
+        # Mark as failed in vector store
+        try:
+            vector_store = get_vector_store()
+            vector_store.mark_as_failed(file_id, str(e))
+        except Exception as ve:
+            logger.error(f"Failed to update vector store status: {ve}")
+            
+        raise
